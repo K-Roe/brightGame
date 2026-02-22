@@ -1,5 +1,3 @@
-import BattleView from "@/components/quest/BattleView";
-import { QuestMode } from "@/types/quest";
 import * as Location from "expo-location";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -12,31 +10,37 @@ import {
 } from "react-native";
 import MapView, { LatLng, PROVIDER_GOOGLE, Polyline } from "react-native-maps";
 
+// Internal Imports
+import BattleView from "@/components/quest/BattleView";
+import { getRandomQuest } from "@/data/quests";
+import { QuestData, QuestMode } from "@/types/quest";
+
 const { width } = Dimensions.get("window");
 
 export default function JoggingQuest() {
+  // --- QUEST SELECTION ---
+  const [activeQuest] = useState<QuestData>(() => getRandomQuest());
+
   // --- STATE ---
   const [mode, setMode] = useState<QuestMode>("WALKING");
   const [distance, setDistance] = useState(0);
   const [routeCoordinates, setRouteCoordinates] = useState<LatLng[]>([]);
   const [story, setStory] = useState(
-    "The GPS signal is locked. Step into the mist to begin your journey...",
+    activeQuest.milestones[0]?.text || "The mist clears...",
   );
   const [isTracking, setIsTracking] = useState(false);
 
   // --- REFS ---
   const locationWatcher = useRef<Location.LocationSubscription | null>(null);
 
-  // --- LOGIC: Cleanup on Unmount ---
+  // --- CLEANUP ---
   useEffect(() => {
     return () => {
-      if (locationWatcher.current) {
-        locationWatcher.current.remove();
-      }
+      if (locationWatcher.current) locationWatcher.current.remove();
     };
   }, []);
 
-  // --- LOGIC: Distance Calculation ---
+  // --- DISTANCE LOGIC ---
   const calculateDistance = (
     lat1: number,
     lon1: number,
@@ -54,66 +58,76 @@ export default function JoggingQuest() {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
 
-  // --- LOGIC: Trigger RPG Events ---
-  const triggerEvent = () => {
-    const chance = Math.random();
-    if (chance > 0.8) {
-      setMode("BATTLE");
-      setStory("⚠️ AMBUSH! A Shadow Creeper lunges from the darkness!");
-    } else {
-      const messages = [
-        "You find a discarded health potion. Your resolve strengthens.",
-        "The wind howls. You feel the presence of ancient spirits.",
-        "You've reached a milestone! +10 XP gained for endurance.",
-      ];
-      setStory(messages[Math.floor(Math.random() * messages.length)]);
-    }
+  const handleMovement = (addedDist: number) => {
+    setDistance((old) => {
+      const newTotal = old + addedDist;
+
+      // 1. Check for specific milestones in the Quest File
+      const milestone = activeQuest.milestones.find(
+        (m) => newTotal >= m.atKm && old < m.atKm,
+      );
+
+      if (milestone) {
+        setStory(milestone.text);
+        if (milestone.type === "BATTLE") {
+          setMode("BATTLE");
+        }
+      }
+      // 2. Random Encounters (only if no milestone was hit)
+      else if (Math.floor(newTotal * 20) > Math.floor(old * 20)) {
+        if (Math.random() > 0.8) {
+          setMode("BATTLE");
+          setStory("⚠️ A wild creature lunges from the shadows!");
+        }
+      }
+
+      return newTotal;
+    });
   };
 
-  // --- LOGIC: Start/Stop Tracking ---
+  // --- TEST BUTTON LOGIC ---
+  const simulateWalking = () => {
+    handleMovement(0.01);
+    const last = routeCoordinates[routeCoordinates.length - 1] || {
+      latitude: 37.78825,
+      longitude: -122.4324,
+    };
+    setRouteCoordinates([
+      ...routeCoordinates,
+      {
+        latitude: last.latitude + 0.0001,
+        longitude: last.longitude + 0.0001,
+      },
+    ]);
+  };
+
+  // --- GPS CONTROL ---
   const toggleQuest = async () => {
     if (isTracking) {
       if (locationWatcher.current) locationWatcher.current.remove();
       setIsTracking(false);
-      setStory("Quest paused. Your progress has been etched into history.");
       return;
     }
 
     let { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") {
-      setStory("Permission denied. The gods cannot track your path.");
-      return;
-    }
+    if (status !== "granted") return;
 
     setIsTracking(true);
-    setStory("The journey begins. May your stride be swift.");
-
     locationWatcher.current = await Location.watchPositionAsync(
-      {
-        accuracy: Location.Accuracy.BestForNavigation,
-        distanceInterval: 5, // Update every 5 meters
-      },
-      (newLocation) => {
-        const { latitude, longitude } = newLocation.coords;
-
+      { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 5 },
+      (newLoc) => {
+        const { latitude, longitude } = newLoc.coords;
         setRouteCoordinates((prev) => {
           if (prev.length > 0) {
             const last = prev[prev.length - 1];
-            const d = calculateDistance(
-              last.latitude,
-              last.longitude,
-              latitude,
-              longitude,
+            handleMovement(
+              calculateDistance(
+                last.latitude,
+                last.longitude,
+                latitude,
+                longitude,
+              ),
             );
-
-            setDistance((old) => {
-              const newTotal = old + d;
-              // Trigger event every 100 meters (0.1km)
-              if (Math.floor(newTotal * 10) > Math.floor(old * 10)) {
-                triggerEvent();
-              }
-              return newTotal;
-            });
           }
           return [...prev, { latitude, longitude }];
         });
@@ -123,41 +137,48 @@ export default function JoggingQuest() {
 
   return (
     <View style={styles.container}>
-      {/* SECTION 1: VISUALS (MAP OR BATTLE) */}
+      {/* MAP / BATTLE AREA */}
       <View style={styles.visualArea}>
+        <View style={styles.questHeader}>
+          <Text style={styles.questTitle}>{activeQuest.title}</Text>
+        </View>
+
         {mode === "BATTLE" ? (
           <BattleView
             onVictory={() => {
               setMode("WALKING");
-              setStory(
-                "Victory! The creature dissolves into mist. Continue on.",
-              );
+              setStory("Victory! The path is clear.");
             }}
           />
         ) : (
-          <MapView
-            provider={PROVIDER_GOOGLE}
-            style={StyleSheet.absoluteFillObject}
-            customMapStyle={mapStyle}
-            showsUserLocation={true}
-            followsUserLocation={true}
-            initialRegion={{
-              latitude: routeCoordinates[0]?.latitude || 37.78825,
-              longitude: routeCoordinates[0]?.longitude || -122.4324,
-              latitudeDelta: 0.005,
-              longitudeDelta: 0.005,
-            }}
-          >
-            <Polyline
-              coordinates={routeCoordinates}
-              strokeColor="#ffd700"
-              strokeWidth={4}
-            />
-          </MapView>
+          <>
+            <MapView
+              provider={PROVIDER_GOOGLE}
+              style={StyleSheet.absoluteFillObject}
+              customMapStyle={mapStyle}
+              showsUserLocation={true}
+              followsUserLocation={true}
+              initialRegion={{
+                latitude: 37.78825,
+                longitude: -122.4324,
+                latitudeDelta: 0.005,
+                longitudeDelta: 0.005,
+              }}
+            >
+              <Polyline
+                coordinates={routeCoordinates}
+                strokeColor="#ffd700"
+                strokeWidth={4}
+              />
+            </MapView>
+            <TouchableOpacity style={styles.testBtn} onPress={simulateWalking}>
+              <Text style={styles.testBtnText}>TEST +0.01km</Text>
+            </TouchableOpacity>
+          </>
         )}
       </View>
 
-      {/* SECTION 2: STORY AREA */}
+      {/* STORY AREA */}
       <View style={styles.storyArea}>
         <Text style={styles.logHeader}>— JOURNAL LOG —</Text>
         <ScrollView
@@ -168,7 +189,7 @@ export default function JoggingQuest() {
         </ScrollView>
       </View>
 
-      {/* SECTION 3: DASHBOARD */}
+      {/* DASHBOARD AREA */}
       <View style={styles.dashboard}>
         <View style={styles.statCard}>
           <View>
@@ -178,7 +199,6 @@ export default function JoggingQuest() {
               <Text style={styles.unit}> KM</Text>
             </Text>
           </View>
-
           <TouchableOpacity
             style={[styles.btn, isTracking && styles.btnActive]}
             onPress={toggleQuest}
@@ -193,10 +213,9 @@ export default function JoggingQuest() {
   );
 }
 
-// --- MAP STYLING (RPG DARK THEME) ---
+// --- STYLING ---
 const mapStyle = [
   { elementType: "geometry", stylers: [{ color: "#1a1a1a" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#757575" }] },
   {
     featureType: "road",
     elementType: "geometry",
@@ -210,18 +229,42 @@ const mapStyle = [
   { featureType: "poi", stylers: [{ visibility: "off" }] },
 ];
 
-// --- STYLES ---
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#050505",
-  },
+  container: { flex: 1, backgroundColor: "#050505" },
   visualArea: {
     height: "45%",
     borderBottomWidth: 3,
     borderColor: "#ffd700",
     backgroundColor: "#000",
   },
+  questHeader: {
+    position: "absolute",
+    top: 50,
+    width: "100%",
+    alignItems: "center",
+    zIndex: 20,
+  },
+  questTitle: {
+    backgroundColor: "rgba(28, 28, 46, 0.9)",
+    color: "#ffd700",
+    paddingHorizontal: 15,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#ffd700",
+    fontSize: 11,
+    fontWeight: "bold",
+  },
+  testBtn: {
+    position: "absolute",
+    bottom: 20,
+    right: 20,
+    backgroundColor: "rgba(255, 215, 0, 0.8)",
+    padding: 8,
+    borderRadius: 5,
+    zIndex: 30,
+  },
+  testBtnText: { color: "#000", fontSize: 10, fontWeight: "bold" },
   storyArea: {
     height: "30%",
     padding: 20,
@@ -230,16 +273,15 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     borderWidth: 1,
     borderColor: "rgba(255, 215, 0, 0.2)",
-    elevation: 5,
   },
   logHeader: {
     color: "#ffd700",
     fontSize: 10,
     fontWeight: "bold",
-    letterSpacing: 3,
+    letterSpacing: 2,
     textAlign: "center",
     marginBottom: 10,
-    opacity: 0.7,
+    opacity: 0.6,
   },
   logScroll: { flex: 1 },
   storyText: {
@@ -249,11 +291,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontStyle: "italic",
   },
-  dashboard: {
-    height: "25%",
-    paddingHorizontal: 15,
-    justifyContent: "center",
-  },
+  dashboard: { height: "25%", paddingHorizontal: 15, justifyContent: "center" },
   statCard: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -264,21 +302,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#333",
   },
-  statLabel: {
-    color: "#888",
-    fontSize: 10,
-    fontWeight: "bold",
-    letterSpacing: 1,
-  },
-  statValue: {
-    color: "#fff",
-    fontSize: 34,
-    fontWeight: "bold",
-  },
-  unit: {
-    fontSize: 14,
-    color: "#ffd700",
-  },
+  statLabel: { color: "#888", fontSize: 10, fontWeight: "bold" },
+  statValue: { color: "#fff", fontSize: 34, fontWeight: "bold" },
+  unit: { fontSize: 14, color: "#ffd700" },
   btn: {
     backgroundColor: "#ffd700",
     paddingVertical: 12,
@@ -290,9 +316,5 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ffd700",
   },
-  btnText: {
-    color: "#000",
-    fontWeight: "bold",
-    fontSize: 12,
-  },
+  btnText: { color: "#000", fontWeight: "bold", fontSize: 12 },
 });
