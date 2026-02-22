@@ -12,8 +12,21 @@
       "supportsTablet": true
     },
     "android": {
-        "package": "com.brightsenapps.brightgame",
-        "googleServicesFile": "./google-services.json",
+      "package": "com.brightsenapps.brightgame",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyA0zIzRtFlrpkGcSEzBxU3oosQSXIX-Tg4"
+        }
+      },
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -29,7 +42,6 @@
     },
     "plugins": [
       "expo-router",
-      "@react-native-firebase/app",
       [
         "expo-splash-screen",
         {
@@ -41,7 +53,8 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

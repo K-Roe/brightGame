@@ -3,6 +3,8 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  SafeAreaView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
@@ -10,7 +12,7 @@ import {
 } from "react-native";
 import { useAuth } from "../../context/AuthContext";
 import api from "../../services/api";
-import { GameStyles } from "../../src/constants/theme";
+
 export default function LoginScreen() {
   const router = useRouter();
   const { login } = useAuth();
@@ -21,7 +23,10 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert("System Error", "All data fields must be populated.");
+      Alert.alert(
+        "Quest Error",
+        "Your credentials are required to enter the realm.",
+      );
       return;
     }
     setLoading(true);
@@ -32,7 +37,8 @@ export default function LoginScreen() {
       }
     } catch (error) {
       const message =
-        error.response?.data?.message || "Connection to server lost.";
+        error.response?.data?.message ||
+        "The gates are sealed. Check your connection.";
       Alert.alert("Access Denied", message);
     } finally {
       setLoading(false);
@@ -40,31 +46,32 @@ export default function LoginScreen() {
   };
 
   return (
-    // Tip: Use a dark background color or a subtle dark pattern image
-    <View className={GameStyles.container}>
+    <SafeAreaView style={styles.container}>
       {/* Game Title Area */}
-      <View className="mb-12">
-        <Text className={GameStyles.headerText}>GAME TITLE</Text>
-        <View className="h-1 w-24 bg-cyan-500 self-center mt-1 rounded-full shadow-sm shadow-cyan-400" />
+      <View style={styles.headerArea}>
+        <Text style={styles.headerText}>
+          BRIGHT<Text style={{ color: "#ffd700" }}>QUEST</Text>
+        </Text>
+        <View style={styles.divider} />
       </View>
 
-      <View className={GameStyles.card}>
-        <Text className={GameStyles.subText}>Authentication Required</Text>
+      <View style={styles.card}>
+        <Text style={styles.subText}>IDENTIFY YOURSELF, TRAVELER</Text>
 
         <TextInput
-          placeholder="USER EMAIL"
+          placeholder="HERO'S EMAIL"
           placeholderTextColor="#64748b"
           autoCapitalize="none"
           keyboardType="email-address"
-          className={GameStyles.input}
+          style={styles.input}
           value={email}
           onChangeText={setEmail}
         />
 
         <TextInput
-          placeholder="ACCESS KEY"
+          placeholder="PLAYER KEY"
           placeholderTextColor="#64748b"
-          className={GameStyles.input}
+          style={styles.input}
           value={password}
           onChangeText={setPassword}
           secureTextEntry
@@ -74,28 +81,124 @@ export default function LoginScreen() {
           onPress={handleLogin}
           disabled={loading}
           activeOpacity={0.8}
-          className={`${GameStyles.primaryBtn} ${loading ? GameStyles.primaryBtnDisabled : ""}`}
+          style={[styles.primaryBtn, loading && styles.disabledBtn]}
         >
           {loading ? (
             <ActivityIndicator color="white" />
           ) : (
-            <Text className={GameStyles.btnText}>INITIALIZE</Text>
+            <Text style={styles.btnText}>ENTER REALM</Text>
           )}
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => router.push("/register")}>
-          <Text className="text-slate-400 text-center mt-2 text-sm">
-            NEW PLAYER?{" "}
-            <Text className="text-cyan-400 font-bold">CREATE ACCOUNT</Text>
+          <Text style={styles.registerText}>
+            NEW TO THE QUEST?{" "}
+            <Text style={styles.registerLink}>JOIN THE FELLOWSHIP</Text>
           </Text>
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity onPress={() => router.back()} className="mt-8">
-        <Text className="text-slate-500 uppercase tracking-widest text-xs font-bold">
-          Return to Main
-        </Text>
+      <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <Text style={styles.backBtnText}>RETURN TO START</Text>
       </TouchableOpacity>
-    </View>
+    </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#0f0f1a", // Deep space/fantasy blue
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  headerArea: {
+    marginBottom: 40,
+    alignItems: "center",
+  },
+  headerText: {
+    color: "#fff",
+    fontSize: 42,
+    fontWeight: "900",
+    letterSpacing: 2,
+  },
+  divider: {
+    height: 3,
+    width: 120,
+    backgroundColor: "#ffd700",
+    marginTop: 8,
+    borderRadius: 2,
+    // Note: Shadow properties work differently on Android/iOS
+    shadowColor: "#ffd700",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  card: {
+    width: "100%",
+    backgroundColor: "#1c1c2e",
+    padding: 25,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255, 215, 0, 0.2)",
+  },
+  subText: {
+    color: "#94a3b8",
+    textAlign: "center",
+    marginBottom: 25,
+    fontSize: 12,
+    letterSpacing: 1.5,
+    fontWeight: "600",
+  },
+  input: {
+    backgroundColor: "#0f0f1a",
+    color: "#fff",
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: "#334155",
+  },
+  primaryBtn: {
+    backgroundColor: "#1e90ff",
+    padding: 18,
+    borderRadius: 12,
+    marginTop: 10,
+    alignItems: "center",
+    shadowColor: "#1e90ff",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
+  },
+  disabledBtn: {
+    backgroundColor: "#475569",
+  },
+  btnText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 16,
+    letterSpacing: 1,
+  },
+  registerText: {
+    color: "#64748b",
+    textAlign: "center",
+    marginTop: 20,
+    fontSize: 13,
+  },
+  registerLink: {
+    color: "#ffd700",
+    fontWeight: "bold",
+  },
+  backBtn: {
+    marginTop: 30,
+  },
+  backBtnText: {
+    color: "#475569",
+    fontSize: 11,
+    fontWeight: "bold",
+    letterSpacing: 2,
+  },
+});
