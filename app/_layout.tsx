@@ -1,7 +1,8 @@
-import { Stack, useRouter, useSegments } from 'expo-router';
-import { useEffect } from 'react';
-import { AuthProvider, useAuth } from '../context/AuthContext';
-import './globals.css';
+import { Stack, useRouter, useSegments } from "expo-router";
+import * as Speech from "expo-speech";
+import { useEffect } from "react";
+import { AuthProvider, useAuth } from "../context/AuthContext";
+import "./globals.css";
 
 function RootLayoutNav() {
   const { authToken, isLoading } = useAuth();
@@ -11,12 +12,15 @@ function RootLayoutNav() {
   useEffect(() => {
     if (isLoading) return;
 
-    const inAuthGroup = segments[0] === '(auth)';
+    Speech.getAvailableVoicesAsync().catch(() => {});
+    Speech.speak("", { volume: 0 });
+
+    const inAuthGroup = segments[0] === "(auth)";
 
     if (!authToken && !inAuthGroup) {
-      router.replace('/(auth)/login');
+      router.replace("/(auth)/login");
     } else if (authToken && inAuthGroup) {
-      router.replace('/(main)');
+      router.replace("/(main)");
     }
   }, [authToken, isLoading, segments]);
 

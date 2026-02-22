@@ -32,6 +32,13 @@ export default function JoggingQuest() {
 
   // --- REFS ---
   const locationWatcher = useRef<Location.LocationSubscription | null>(null);
+  // Ref to track the mode because the location callback is a closure
+  const modeRef = useRef<QuestMode>("WALKING");
+
+  // Keep the ref in sync with state
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   // --- CLEANUP ---
   useEffect(() => {
@@ -87,18 +94,21 @@ export default function JoggingQuest() {
 
   // --- TEST BUTTON LOGIC ---
   const simulateWalking = () => {
-    handleMovement(0.01);
-    const last = routeCoordinates[routeCoordinates.length - 1] || {
-      latitude: 37.78825,
-      longitude: -122.4324,
-    };
-    setRouteCoordinates([
-      ...routeCoordinates,
-      {
-        latitude: last.latitude + 0.0001,
-        longitude: last.longitude + 0.0001,
-      },
-    ]);
+    // Only allow testing if we aren't in a battle
+    if (mode === "WALKING") {
+      handleMovement(0.01);
+      const last = routeCoordinates[routeCoordinates.length - 1] || {
+        latitude: 37.78825,
+        longitude: -122.4324,
+      };
+      setRouteCoordinates([
+        ...routeCoordinates,
+        {
+          latitude: last.latitude + 0.0001,
+          longitude: last.longitude + 0.0001,
+        },
+      ]);
+    }
   };
 
   // --- GPS CONTROL ---
@@ -116,18 +126,25 @@ export default function JoggingQuest() {
     locationWatcher.current = await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 5 },
       (newLoc) => {
+        // GATE: Stop distance tracking if in Battle
+        if (modeRef.current !== "WALKING") return;
+
         const { latitude, longitude } = newLoc.coords;
         setRouteCoordinates((prev) => {
           if (prev.length > 0) {
             const last = prev[prev.length - 1];
-            handleMovement(
-              calculateDistance(
-                last.latitude,
-                last.longitude,
-                latitude,
-                longitude,
-              ),
+            const d = calculateDistance(
+              last.latitude,
+              last.longitude,
+              latitude,
+              longitude,
             );
+
+            // JITTER FILTER: Ignore jumps larger than 100 meters (0.1km)
+            // per 5-meter interval. This stops "teleporting."
+            if (d < 0.1) {
+              handleMovement(d);
+            }
           }
           return [...prev, { latitude, longitude }];
         });
