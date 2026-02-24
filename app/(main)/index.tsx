@@ -126,7 +126,7 @@ export default function BrightQuestMenu() {
           subtitle="Press-ups & Planks"
           emoji="⚔️"
           backgroundColor="#8a2be2"
-          onPress={() => router.push("/training")}
+          onPress={() => router.push("/trainingCamp")}
         />
 
         {/* UTILITY BUTTONS */}

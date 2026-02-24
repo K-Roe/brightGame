@@ -10,6 +10,10 @@ export default function MainLayout() {
         options={{ title: "Create Character" }}
       />
       <Stack.Screen name="quest" options={{ title: "Quest" }} />
+      <Stack.Screen name="trainingCamp" options={{ title: "trainingCamp" }} />
+      <Stack.Screen name="PushUpQuest" options={{ title: "PushUpQuest" }} />
+      <Stack.Screen name="PlankQuest" options={{ title: "PlankQuest" }} />
+      <Stack.Screen name="SitUpQuest" options={{ title: "SitUpQuest" }} />
     </Stack>
   );
 }
