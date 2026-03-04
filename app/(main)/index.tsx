@@ -1,189 +1,417 @@
-import CharacterCard from "@/components/CharacterCard";
-import MenuButton from "@/components/MenuButton";
-import { useAuth } from "@/context/AuthContext";
-import api from "@/services/api";
-import { useRouter } from "expo-router";
-import * as SecureStore from "expo-secure-store";
-import { useEffect, useState } from "react";
+import * as Location from "expo-location";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Dimensions,
+  SafeAreaView,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import MapView, { PROVIDER_GOOGLE, Polyline } from "react-native-maps";
 
-export default function BrightQuestMenu() {
-  const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [character, setCharacter] = useState(null);
-  const { logout } = useAuth();
+// Internal Imports
+import BattleView from "@/components/quest/BattleView";
+import { getRandomQuest } from "@/data/quests";
+import { QuestData, QuestMode } from "@/types/quest";
+
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+const COLORS = {
+  background: "#0f0f1a",
+  card: "#1c1c2e",
+  primaryGold: "#ffd700",
+  textWhite: "#ffffff",
+  textMuted: "rgba(255, 255, 255, 0.7)",
+  danger: "#8b0000",
+  mapRoads: "#2a2a40",
+};
+
+export default function JoggingQuest() {
+  const [activeQuest] = useState<QuestData>(() => getRandomQuest());
+  const [mode, setMode] = useState<QuestMode>("WALKING");
+  const [story, setStory] = useState(
+    activeQuest.milestones[0]?.text || "JOURNEY BEGINS...",
+  );
+
+  const [isTracking, setIsTracking] = useState(false);
+  const [distance, setDistance] = useState(0);
+  const [seconds, setSeconds] = useState(0);
+  const [location, setLocation] = useState<any>(null);
+  const [routeCoordinates, setRouteCoordinates] = useState<any[]>([]);
+
+  // Permission States
+  const [permissionStatus, setPermissionStatus] =
+    useState<Location.PermissionStatus | null>(null);
+
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const locationWatcher = useRef<Location.LocationSubscription | null>(null);
+  const modeRef = useRef<QuestMode>("WALKING");
 
   useEffect(() => {
-    loadUserStats();
+    modeRef.current = mode;
+  }, [mode]);
+
+  // Check permission on mount
+  useEffect(() => {
+    (async () => {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      setPermissionStatus(status);
+    })();
   }, []);
 
-  const loadUserStats = async () => {
-    try {
-      setLoading(true);
-      const token = await SecureStore.getItemAsync("user-token");
+  const requestPermission = async () => {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    setPermissionStatus(status);
+  };
 
-      if (!token) {
-        router.replace("/login");
-        return;
+  const calculateDistance = (
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ) => {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * (Math.PI / 180);
+    const dLon = (lon2 - lon1) * (Math.PI / 180);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * (Math.PI / 180)) *
+        Math.cos(lat2 * (Math.PI / 180)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+  };
+
+  const formatTime = (secs: number) => {
+    const mins = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${mins.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const handleMovement = (addedDist: number) => {
+    setDistance((old) => {
+      const newTotal = old + addedDist;
+      const milestone = activeQuest.milestones.find(
+        (m) => newTotal >= m.atKm && old < m.atKm,
+      );
+      if (milestone) {
+        setStory(milestone.text);
+        if (milestone.type === "BATTLE") setMode("BATTLE");
       }
-      const response = await api.get("/character", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      return newTotal;
+    });
+  };
 
-      const data = response.data;
+  const toggleTracking = async () => {
+    if (isTracking) {
+      setIsTracking(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (locationWatcher.current) locationWatcher.current.remove();
+      return;
+    }
 
-      if (data) {
-        const weightDiff = (
-          parseFloat(data.starting_weight) - parseFloat(data.current_weight)
-        ).toFixed(1);
+    if (permissionStatus !== Location.PermissionStatus.GRANTED) {
+      await requestPermission();
+      return;
+    }
 
-        setCharacter({
-          ...data,
-          weightLost: weightDiff,
-          displayClass: data.hero_class
-            ? data.hero_class.toUpperCase()
-            : "UNKNOWN",
+    setIsTracking(true);
+    timerRef.current = setInterval(() => setSeconds((prev) => prev + 1), 1000);
+
+    locationWatcher.current = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.BestForNavigation,
+        timeInterval: 2000,
+        distanceInterval: 5,
+      },
+      (newLocation) => {
+        if (modeRef.current !== "WALKING") return;
+        const { latitude, longitude } = newLocation.coords;
+        setLocation(newLocation);
+        setRouteCoordinates((prev) => {
+          if (prev.length > 0) {
+            const last = prev[prev.length - 1];
+            handleMovement(
+              calculateDistance(
+                last.latitude,
+                last.longitude,
+                latitude,
+                longitude,
+              ),
+            );
+          }
+          return [...prev, { latitude, longitude }];
         });
-      }
-    } catch (error) {
-      console.error("Failed to load user stats:", error);
-    } finally {
-      setLoading(false);
-    }
+      },
+    );
   };
 
-  const handleLogout = async () => {
-    try {
-      await api.post("/logout");
-    } catch (e) {
-    } finally {
-      await logout();
-      router.replace("/login");
-    }
-  };
-
-  if (loading) {
+  // --- PERMISSION OVERLAY ---
+  if (permissionStatus === null) {
     return (
-      <View style={[styles.container, { justifyContent: "center" }]}>
-        <ActivityIndicator size="large" color="#ffd700" />
-        <Text style={{ color: "#fff", marginTop: 10, textAlign: "center" }}>
-          Summoning Hero...
+      <View style={[styles.container, styles.centered]}>
+        <ActivityIndicator color={COLORS.primaryGold} size="large" />
+      </View>
+    );
+  }
+
+  if (permissionStatus !== Location.PermissionStatus.GRANTED) {
+    return (
+      <View style={[styles.container, styles.centered, { padding: 40 }]}>
+        <Text style={styles.questTitle}>PERMISSIONS REQUIRED</Text>
+        <Text
+          style={[
+            styles.storyText,
+            { textAlign: "center", marginTop: 20, marginBottom: 30 },
+          ]}
+        >
+          To track your journey through the realm, you must grant access to your
+          location.
         </Text>
+        <TouchableOpacity
+          style={[styles.mainButton, styles.btnInit, { width: "100%" }]}
+          onPress={requestPermission}
+        >
+          <Text style={styles.buttonText}>GRANT ACCESS</Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
-        {/* APP TITLE */}
-        <Text style={styles.brand}>
-          BRIGHT<Text style={{ color: "#ffd700" }}>QUEST</Text>
-        </Text>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" />
 
-        {/* CHARACTER MINI-CARD */}
+      {/* HEADER */}
+      <View style={styles.headerHUD}>
+        <Text style={styles.questTitle}>{activeQuest.title.toUpperCase()}</Text>
+        <View style={styles.lineDecor} />
+      </View>
 
-        {character ? (
-          <CharacterCard character={character} />
+      {/* MAP / BATTLE AREA */}
+      <View style={styles.visualArea}>
+        {mode === "BATTLE" ? (
+          <BattleView
+            onVictory={() => {
+              setMode("WALKING");
+              setStory("FOE DEFEATED. CONTINUE YOUR JOURNEY.");
+            }}
+          />
         ) : (
-          <View style={styles.statsCard}>
-            <Text style={styles.statsTitle}>NO HERO FOUND</Text>
-            <TouchableOpacity onPress={() => router.push("/createCharacter")}>
-              <Text style={{ color: "#1e90ff", marginTop: 10 }}>
-                Create one to begin your quest →
-              </Text>
-            </TouchableOpacity>
-          </View>
+          <MapView
+            provider={PROVIDER_GOOGLE}
+            style={StyleSheet.absoluteFillObject}
+            customMapStyle={mapStyle}
+            showsUserLocation={true}
+            followsUserLocation={true}
+            initialRegion={{
+              latitude: location ? location.coords.latitude : 37.78825,
+              longitude: location ? location.coords.longitude : -122.4324,
+              latitudeDelta: 0.005,
+              longitudeDelta: 0.005,
+            }}
+          >
+            <Polyline
+              coordinates={routeCoordinates}
+              strokeColor={COLORS.primaryGold}
+              strokeWidth={5}
+            />
+          </MapView>
         )}
+      </View>
 
-        {/* MAIN RPG BUTTONS */}
-        <MenuButton
-          title="START QUEST"
-          subtitle="The Tutorial-Quest awaits..."
-          emoji="🗺️"
-          onPress={() => router.push("/quest")}
-        />
-
-        <MenuButton
-          title="FELLOWSHIP"
-          subtitle="0 Allies Online"
-          emoji="🛡️"
-          backgroundColor="#2e8b57"
-          onPress={() => router.push("/fellowship")}
-        />
-
-        <MenuButton
-          title="TRAINING CAMP"
-          subtitle="Press-ups & Planks"
-          emoji="⚔️"
-          backgroundColor="#8a2be2"
-          onPress={() => router.push("/trainingCamp")}
-        />
-
-        {/* UTILITY BUTTONS */}
-        <View style={styles.footer}>
-          <TouchableOpacity
-            style={styles.smallButton}
-            onPress={() => router.push("/settings")}
-          >
-            <Text style={styles.smallButtonText}>SETTINGS</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.smallButton, styles.logoutBtn]}
-            onPress={handleLogout}
-          >
-            <Text style={styles.smallButtonText}>LOGOUT</Text>
-          </TouchableOpacity>
+      {/* STORY LOG */}
+      <View style={styles.terminalContainer}>
+        <View style={styles.terminalHeader}>
+          <Text style={styles.terminalHeaderText}>CHRONICLE_LOG</Text>
+          <View
+            style={[
+              styles.statusDot,
+              {
+                backgroundColor: isTracking
+                  ? COLORS.primaryGold
+                  : COLORS.danger,
+              },
+            ]}
+          />
         </View>
-      </ScrollView>
-    </View>
+        <ScrollView
+          style={styles.terminalBody}
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={styles.storyText}>
+            <Text style={styles.prompt}>» </Text>
+            {story}
+          </Text>
+        </ScrollView>
+      </View>
+
+      {/* STATS & BUTTON */}
+      <View style={styles.dashboard}>
+        <View style={styles.statsRow}>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>STRETCH_COVERED</Text>
+            <View style={styles.valueWrapper}>
+              <Text style={styles.statValue}>{distance.toFixed(2)}</Text>
+              <Text style={styles.unitText}>KM</Text>
+            </View>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>TIME_ELAPSED</Text>
+            <Text style={[styles.statValue, { color: COLORS.textWhite }]}>
+              {formatTime(seconds)}
+            </Text>
+          </View>
+        </View>
+
+        <TouchableOpacity
+          activeOpacity={0.8}
+          style={[
+            styles.mainButton,
+            isTracking ? styles.btnAbort : styles.btnInit,
+          ]}
+          onPress={toggleTracking}
+        >
+          <Text style={styles.buttonText}>
+            {isTracking ? "ABANDON QUEST" : "COMMENCE QUEST"}
+          </Text>
+          <View style={styles.buttonCorner} />
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0f0f1a" },
-  scrollContainer: { alignItems: "center", paddingVertical: 60 },
-  brand: {
-    color: "#fff",
-    fontSize: 32,
-    fontWeight: "900",
-    letterSpacing: 2,
-    marginBottom: 20,
+const mapStyle = [
+  { elementType: "geometry", stylers: [{ color: "#0f0f1a" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#ffd700" }] },
+  {
+    featureType: "road",
+    elementType: "geometry",
+    stylers: [{ color: "#1c1c2e" }],
   },
-  statsCard: {
-    backgroundColor: "#1c1c2e",
-    width: "85%",
-    padding: 20,
+  {
+    featureType: "water",
+    elementType: "geometry",
+    stylers: [{ color: "#000000" }],
+  },
+  { featureType: "poi", stylers: [{ visibility: "off" }] },
+];
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: COLORS.background },
+  centered: { justifyContent: "center", alignItems: "center" },
+  headerHUD: { paddingVertical: 15, alignItems: "center" },
+  questTitle: {
+    color: COLORS.primaryGold,
+    fontSize: 18,
+    fontWeight: "900",
+    letterSpacing: 4,
+    textShadowColor: "rgba(255, 215, 0, 0.4)",
+    textShadowRadius: 10,
+  },
+  lineDecor: {
+    height: 2,
+    width: "40%",
+    backgroundColor: COLORS.primaryGold,
+    marginTop: 5,
+    opacity: 0.5,
+  },
+  visualArea: {
+    flex: 1.2, // Gives map more room while staying flexible
+    marginHorizontal: 15,
+    borderRadius: 15,
+    borderWidth: 1.5,
+    borderColor: COLORS.primaryGold,
+    overflow: "hidden",
+    backgroundColor: "#000",
+  },
+  terminalContainer: {
+    flex: 0.8, // Adjusts based on screen height
+    margin: 15,
+    backgroundColor: COLORS.card,
     borderRadius: 15,
     borderWidth: 1,
-    borderColor: "#ffd700",
-    marginBottom: 30,
+    borderColor: "rgba(255, 215, 0, 0.2)",
+    padding: 15,
   },
-  statsTitle: { color: "#ffd700", fontSize: 18, fontWeight: "bold" },
-
-  subText: { color: "rgba(255,255,255,0.7)", fontSize: 12 },
-  footer: { flexDirection: "row", marginTop: 40, gap: 10 },
-  smallButton: {
-    backgroundColor: "#333",
-    padding: 12,
-    borderRadius: 8,
-    width: 120,
+  terminalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 215, 0, 0.1)",
+    marginBottom: 8,
+    paddingBottom: 4,
   },
-  logoutBtn: { backgroundColor: "#8b0000" },
-  smallButtonText: {
-    color: "#fff",
-    textAlign: "center",
-    fontSize: 12,
+  terminalHeaderText: {
+    color: COLORS.primaryGold,
+    fontSize: 10,
     fontWeight: "bold",
+    opacity: 0.8,
+  },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  terminalBody: { flex: 1 },
+  prompt: { color: COLORS.primaryGold, fontWeight: "bold" },
+  storyText: {
+    color: COLORS.textWhite,
+    fontSize: 16,
+    lineHeight: 24,
+    fontFamily: "serif",
+  },
+  dashboard: { paddingHorizontal: 20, paddingBottom: 20 },
+  statsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 15,
+  },
+  statBox: { width: "48%" },
+  statLabel: {
+    color: COLORS.primaryGold,
+    fontSize: 10,
+    fontWeight: "bold",
+    opacity: 0.7,
+    marginBottom: 4,
+  },
+  valueWrapper: { flexDirection: "row", alignItems: "baseline" },
+  statValue: { color: "#FFF", fontSize: 28, fontWeight: "900" },
+  unitText: {
+    color: COLORS.primaryGold,
+    fontSize: 12,
+    marginLeft: 4,
+    fontWeight: "bold",
+  },
+  mainButton: {
+    height: 60,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 12,
+    borderWidth: 2,
+  },
+  btnInit: {
+    borderColor: COLORS.primaryGold,
+    backgroundColor: "rgba(255, 215, 0, 0.05)",
+  },
+  btnAbort: {
+    borderColor: COLORS.danger,
+    backgroundColor: "rgba(139, 0, 0, 0.1)",
+  },
+  buttonText: {
+    color: "#FFF",
+    fontSize: 16,
+    fontWeight: "900",
+    letterSpacing: 2,
+  },
+  buttonCorner: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 15,
+    height: 15,
+    backgroundColor: COLORS.background,
+    borderTopLeftRadius: 10,
   },
 });
